@@ -26,9 +26,11 @@ Starting from the foundational **"Attention is All You Need" (Vaswani et al., 20
 
 ### Progress
 
-- [x] Tokenizer
+☑︎ Tokenizer
+
+☐ Transformer - Decoder
+
 - [x] Dataset
-- [ ] Transformer - Decoder
 - [ ] Transformer - Encoder - ViT
 - [ ] Transformer - Encoder - DeiT
 - [ ] Transformer - Encoder - SWIN
@@ -72,5 +74,7 @@ src/
 ├── main.py            # entry point
 └── README.md
 ```
+
 ---
-$\large \textrm{Mahanth Yalla,} \\ \small \textrm{M.Tech - Artificial Intelligence,} \\ \textrm{Vision \& AI Lab, CDS Dept.,} \\ \normalsize \textrm{Indian Institute of Science.}$
+
+$\large \textrm{Mahanth Yalla,} \\ \small \textrm{M.Tech - Artificial Intelligence,} \\ \textrm{Vision and AI Lab, CDS Dept.,} \\ \normalsize \textrm{Indian Institute of Science.}$

@@ -1,2 +1,10 @@
 python-dotenv
 torch
+numpy
+matplotlib
+scipy
+tqdm
+rich
+black
+isort
+
