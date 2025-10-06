@@ -69,7 +69,7 @@ class RotaryPositionalEmbedding(nn.Module):
 
 
 class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, model_dimension, context_length, n_heads, n_kv_heads=None, dropout=DROPOUT_DEFAULT):
+    def __init__(self, model_dimension, context_length, n_heads, n_kv_heads=None, dropout=DROPOUT_DEFAULT, is_causal=True):
         super().__init__()
         self.n_heads = n_heads
         self.n_kv_heads = n_kv_heads if n_kv_heads is not None else n_heads
@@ -81,11 +81,13 @@ class MultiHeadSelfAttention(nn.Module):
 
         self.context_length = context_length
         self.dropout = dropout
+        self.is_causal = is_causal
+
         total_proj_dim = (n_heads + 2 * self.n_kv_heads) * self.each_head_size
         self.replication_factor = n_heads // self.n_kv_heads
         self.q_end = self.n_heads * self.each_head_size
         self.k_end = self.q_end + self.n_kv_heads * self.each_head_size
-        
+
         self.W_qkv = nn.Linear(model_dimension, total_proj_dim, bias=False)
         self.proj_attn = nn.Linear(model_dimension, model_dimension, bias=False)
         self.attn_proj_dropout = nn.Dropout(self.dropout)
@@ -95,12 +97,10 @@ class MultiHeadSelfAttention(nn.Module):
             max_seq_len=context_length,
         )
 
-
-    def forward(self, x, start_pos=0, kv_cache=None):
+    def forward(self, x, start_pos=0, kv_cache=None, attn_mask = None):
         B, T, C = x.shape
 
         QKV = self.W_qkv(x)
-
 
         Q = QKV[:, :, :self.q_end]
         K = QKV[:, :, self.q_end: self.k_end]
@@ -119,26 +119,32 @@ class MultiHeadSelfAttention(nn.Module):
             if "k" in kv_cache:
                 K = torch.cat([kv_cache["k"], K], dim=2)
                 V = torch.cat([kv_cache["v"], V], dim=2)
-            
+
             if K.size(2) > self.context_length:
                 K = K[:, :, -self.context_length:, :]
                 V = V[:, :, -self.context_length:, :]
-            
+
             kv_cache["k"], kv_cache["v"] = K, V
 
         if self.n_kv_heads < self.n_heads:
             K = K.repeat_interleave(self.replication_factor, dim=1)
             V = V.repeat_interleave(self.replication_factor, dim=1)
 
+        sdpa_mask = None
+        if attn_mask is not None:
+            if attn_mask.dtype == torch.bool:
+                sdpa_mask = torch.zeros_like(attn_mask, dtype=Q.dtype).masked_fill(attn_mask, float("-inf"))
+            else:
+                sdpa_mask = attn_mask
+
         sdpa = F.scaled_dot_product_attention(
-            Q, K, V, 
-            attn_mask = None, 
+            Q, K, V,
+            attn_mask=sdpa_mask,
             dropout_p=self.dropout if self.training else 0.0,
-            is_causal=True
+            is_causal=self.is_causal
         )
 
         output = sdpa.transpose(1, 2).contiguous().view(B, T, C)
-
         return self.attn_proj_dropout(self.proj_attn(output))
 
 class FusedFNNSwiGLU(nn.Module):
@@ -271,3 +277,68 @@ class DecoderOnlyTransformer(nn.Module):
                 x = torch.cat([x, torch.multinomial(prob_dist, 1, generator=gen)], -1).to(target_device)
             self.train()
             return x
+
+
+class EncoderBlock(nn.Module):
+    def __init__(self, model_dimension, context_length, n_heads, ffn_hid_dim, n_kv_heads=None, dropout=DROPOUT_DEFAULT):
+        super().__init__()
+        self.attn_norm = RMSNorm(model_dimension)
+        self.attn = MultiHeadSelfAttention(model_dimension, context_length, n_heads, n_kv_heads, dropout, is_causal=False)
+        self.ffn_norm = RMSNorm(model_dimension)
+        self.ffn = FusedFNNSwiGLU(model_dimension, ffn_hid_dim, dropout)
+
+    def forward(self, x, attn_mask: torch.Tensor = None):
+        x = x + self.attn(self.attn_norm(x), start_pos=0, kv_cache=None, attn_mask=attn_mask)
+        x = x + self.ffn(self.ffn_norm(x))
+        return x
+
+
+class EncoderOnlyTransformer(nn.Module):
+    def __init__(self, vocab_size, context_length, model_dimension, n_heads, Nx_blocks, ffn_hid_dim, n_kv_heads=None, dropout=DROPOUT_DEFAULT, tie_weights=False, init_std_val=0.02):
+        super().__init__()
+        self.Nx_blocks = Nx_blocks
+        self.context_length = context_length
+
+        self.token_emb = nn.Embedding(vocab_size, model_dimension)
+        self.blocks = nn.ModuleList([
+            EncoderBlock(
+                model_dimension,
+                context_length,
+                n_heads,
+                ffn_hid_dim,
+                n_kv_heads,
+                dropout
+            ) for _ in range(Nx_blocks)
+        ])
+        self.final_norm = RMSNorm(model_dimension)
+
+        self.output_proj = None
+        if tie_weights:
+            self.output_proj = nn.Linear(model_dimension, vocab_size, bias=False)
+            self.output_proj.weight = self.token_emb.weight
+
+        self._init_weights(init_std_val)
+
+    def _init_weights(self, std_val=0.02):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.normal_(module.weight, mean=0.0, std=std_val)
+                if module.bias is not None:
+                    torch.nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.Embedding):
+                nn.init.normal_(module.weight, mean=0.0, std=std_val)
+
+        scale = ((2 * self.Nx_blocks) ** -0.5)
+        for b in self.blocks:
+            b.attn.proj_attn.weight.data.mul_(scale)
+            b.ffn.proj_ffn.weight.data.mul_(scale)
+
+    def forward(self, input_ids, attn_mask = None):
+        x = self.token_emb(input_ids)
+        for block in self.blocks:
+            x = block(x, attn_mask=attn_mask)
+        x = self.final_norm(x)
+        if self.output_proj is not None:
+            return self.output_proj(x)
+        return x
+    
