@@ -1,10 +1,10 @@
-import torch
-from torchvision import transforms
-from torch.utils.data import Dataset
 import json, os
 from PIL import Image
 
-# from training.utils import preprocess_captions
+import torch
+from torchvision import transforms
+from torch.utils.data import Dataset
+
 import training.utils as ut
 
 image_stats = {
@@ -29,7 +29,7 @@ class COCODataset(Dataset):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
         self.default_resize = default_resize
-
+        self.default_stats = default_stats
         self.transform = transform or transforms.Compose([
             transforms.Resize((default_resize, default_resize)),
             transforms.ToTensor(),
@@ -78,3 +78,19 @@ class COCODataset(Dataset):
         token_ids = torch.tensor(token_ids, dtype=torch.long)
         
         return image, token_ids
+
+    def decode_tensor(self, tensor):
+        if isinstance(tensor, torch.Tensor):
+            tensor = tensor.cpu()
+        elif isinstance(tensor, list):
+            tensor = torch.stack(tensor).cpu()
+        else:
+            raise ValueError("Input should be a torch.Tensor or a list of torch.Tensors.")
+        inv_normalize = transforms.Normalize(
+            mean=[-m/s for m, s in zip(image_stats[self.default_stats]['mean'], image_stats[self.default_stats]['std'])],
+            std=[1/s for s in image_stats[self.default_stats]['std']]
+        )
+        tensor = inv_normalize(tensor)
+        tensor = torch.clamp(tensor, 0, 1)
+        img = transforms.ToPILImage()(tensor)
+        return img

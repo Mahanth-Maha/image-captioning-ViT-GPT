@@ -1,0 +1,51 @@
+batch_size: 8
+
+model:
+  name: 'vit-gpt-debug'
+  encoder:
+    vocab_size: 196
+    dim: 64
+    context_length: 196
+    ffn_dim: 256
+    n_heads: 4
+    Nx: 6
+    patch_size: 16  # 224/16 = 14x14 = 196 patches
+    img_resize: 224
+  
+  decoder:
+    vocab_size: 16384
+    dim: 64
+    context_length: 32
+    ffn_dim: 256
+    n_heads: 4
+    Nx: 6
+
+  n_kv_heads: null
+  dropout: 0.1
+  tie_weights: true
+  init_std: 0.2
+  use_checkpoint: true
+  checkpoint_ratio: 0.5
+
+training:
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  warmup_steps: 1000
+  max_steps: 50000
+  gradient_clip: 1.0
+  
+  scheduler: 'cosine'
+  min_lr_ratio: 0.1
+  
+  optimizer: 'adamw'
+  betas: [0.9, 0.95]
+  eps: 1e-8
+  
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 100
+  
+  use_amp: true
+  amp_dtype: 'bfloat16'
+
+device: 'cuda'

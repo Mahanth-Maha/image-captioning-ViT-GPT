@@ -14,6 +14,8 @@ from torch.utils.data import DataLoader
 
 import os
 import math
+import yaml
+import pytz
 import pynvml as nvml
 import os
 import unicodedata
@@ -53,6 +55,9 @@ def get_tokenizer(vocab_size):
         },
         protected_words=[]
     )
+    
+    tokenizer.load()
+    
     return tokenizer
 
 
@@ -257,3 +262,72 @@ def set_gpu(verbose = False):
             print(f'[!] CUDA ERR : Not available -> using CPU {device_active = }')
         print(f'[>] device = cpu')
 
+def load_config_from_yaml(path):
+    with open(path, 'r') as f:
+        return yaml.safe_load(f) or {}
+
+def merge_configs(base, override):
+    for k, v in override.items():
+        if k in base and isinstance(base[k], dict) and isinstance(v, dict):
+            base[k] = merge_configs(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+def overrides_to_dict(args):
+    result = {}
+    for key, value in vars(args).items():
+        if value is None or key == "config_file":
+            continue
+        parts = key.split(".")
+        d = result
+        for part in parts[:-1]:
+            if part not in d:
+                d[part] = {}
+            d = d[part]
+        d[parts[-1]] = value
+    return result
+
+
+def convert2hr1(n):
+    n = float(n)
+    for u in ["", "K", "M", "B", "T"]:
+        if abs(n) < 1000.0:
+            return f"{n:,.1f} {u}"
+        n /= 1000.0
+    return f"{n:.1f} P"
+
+def convert2hr2(n):
+    for u in ['','K','M','B' 'T']:
+        if abs(n) < 1000:
+            return f"{n:.2f} {u}"
+        n /= 1000.0
+    return f"{n:.2f} P"
+
+def fmt_time(total_seconds):
+    total_seconds = float(total_seconds)
+    neg = total_seconds < 0
+    total_seconds = abs(total_seconds)
+    d = int(total_seconds // 86400)
+    h = int((total_seconds % 86400) // 3600)
+    m = int((total_seconds % 3600) // 60)
+    s = int(total_seconds % 60)
+    return f"{'-' if neg else ''}{d}d {h:02d}h {m:02d}m {s:02d}s"
+
+def fmt_dt_ist(dt):
+    months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sept","Oct","Nov","Dec"]
+    days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    ist = pytz.timezone("Asia/Kolkata")
+    dt = dt.astimezone(ist)
+    return f"{months[dt.month-1]} {dt.day:02d} {dt.year} {days[dt.weekday()]} {dt:%H:%M:%S}"
+
+def get_time_str(time_in_secs):
+    neg = False
+    if time_in_secs <0:
+        time_in_secs = abs(time_in_secs)
+        neg = True
+    days = int(time_in_secs // 86400)
+    hours = int((time_in_secs % 86400) // 3600)
+    minutes = int((time_in_secs % 3600) // 60)
+    seconds = int(time_in_secs % 60)
+    return f"{'-' if neg else ''} {days} Days {hours:2d} Hours {minutes:2d} Mins {seconds} Secs"

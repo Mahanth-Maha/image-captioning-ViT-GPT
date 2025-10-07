@@ -94,6 +94,7 @@ class myTokenizer_faster:
         for idx , w in enumerate(self.protected_words):
             self.protected_words_dict[w] = base_tokens + idx
         self.vocab = self._vocab()
+        self.rev_vocab = None
         
     def normalize_spaces(self, text):
         text = ' ' + text
@@ -593,6 +594,29 @@ class myTokenizer_faster:
         if self.vocab is None:
             return None
         return len(self.vocab)
+    
+    def _build_rev_vocab(self):
+        if self.vocab == None:
+            return None
+        rev_vocab = {}
+        for k,v in self.vocab.items():
+            rev_vocab[v] = k
+        return rev_vocab
+    
+    def get_token(self, token):
+        return self.vocab[token].decode("utf-8")
+    
+    def get_token_id(self, token):
+        if self.rev_vocab == None:
+            self.rev_vocab = self._build_rev_vocab()
+        return self.rev_vocab.get(token.encode("utf-8") , None)
+    
+    def decode_tensor(self, tensor, skip_special_tokens=True):
+        ids = tensor.tolist()
+        if skip_special_tokens:
+            ids = [i for i in ids if i not in self.special_tokens.values()]
+        return self.decode(ids)
+        
     
     def _analyze_vocab(self):
         vocab = self._vocab()

@@ -1,0 +1,24 @@
+vocab_size: 16384
+batch_size: 16
+img_resize: 224
+context_length: 128
+model:
+  name: 'transformer-base'
+  dim: 768
+  n_heads: 8
+  n_kv_heads: null
+  ffn_dim: 2304
+  encoder:
+    vocab: 16384
+    context_length: 128
+    Nx: 6
+  decoder:
+    vocab: 16384
+    context_length: 128
+    Nx: 6
+  dropout: 0.1
+  tie_weights: false
+  init_std: 1
+  use_checkpoint: true
+  checkpoint_ratio: 0.5
+device: cuda
