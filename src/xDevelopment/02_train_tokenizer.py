@@ -30,6 +30,7 @@ os.chdir(src_dir)
 
 
 from datasets.tokenizer import myTokenizer_faster
+
 TOKEN_UNK = '<|unknown|>'
 TOKEN_SOS = '<|startofseq|>'
 TOKEN_EOS = '<|endofseq|>'
@@ -74,6 +75,8 @@ def parse_args():
                         default=None, help="max freq protect")
     parser.add_argument('-c', '--preset-config', type=str,
                         default=None, help="configs: 512, 1k, 2k, 4k, 8k, 16k, 32k")
+    parser.add_argument('-m', '--model-name', type=str,
+                        default='bpe', help="configs: bpe, caps_bpe, books_bpe")
 
     return parser.parse_args()
 
@@ -89,13 +92,21 @@ def main():
     protect_words = []
     if args.train:
         print('➡️ Tokenizing...')
-        with open(f"{tokenizer_models_dir}/train_caps.txt", encoding='utf-8') as f:
-            coco_txt = f.read()
+        all_txt = ''
+        if 'caps' in args.model_name or args.model_name == 'bpe':
+            with open(f"{tokenizer_models_dir}/train_caps.txt", encoding='utf-8') as f:
+                coco_txt = f.read()
+            all_txt += coco_txt
+            
+        if 'books' in args.model_name or args.model_name == 'bpe':
+            with open(f"{tokenizer_models_dir}/books_dataset_preprocessed.txt", encoding="utf-8") as f:
+                book_txts = f.read()
+            all_txt += book_txts
 
-        with open(f"{tokenizer_models_dir}/books_dataset_preprocessed.txt", encoding="utf-8") as f:
-            book_txts = f.read()
-        all_txt = coco_txt + book_txts
-
+        if all_txt == '':
+            print(f'No Data to train')
+            return
+        
         print(f'Data Loaded')
         all_txt = ' ' + all_txt
         all_txt = re.sub(r'([\n\r\t\v\f]+)', r' \1 ', all_txt)
@@ -116,7 +127,7 @@ def main():
         print(f'No of Protected words: {len(protect_words)}')
 
     tokenizer = myTokenizer_faster(
-        token_model_file=f"{tokenizer_models_dir}/bpe{vocab_size}.model",
+        token_model_file=f"{tokenizer_models_dir}/{args.model_name}{vocab_size}.model",
         special_tokens={
             TOKEN_UNK: vocab_size - 5,
             TOKEN_SOS: vocab_size - 4,
@@ -190,3 +201,8 @@ if __name__=='__main__':
 # nohup python 02_train_tokenizer.py -t -c 8k > logs/training_tokenizer_bpe8k_train.log  2>&1 &
 # nohup python 02_train_tokenizer.py -t -c 16k > logs/training_tokenizer_bpe16k_train.log  2>&1 &
 # nohup python 02_train_tokenizer.py -t -c 32k > logs/training_tokenizer_bpe32k_train.log  2>&1 &
+
+
+# nohup python xDevelopment/02_train_tokenizer.py -t -c 16k -m caps_bpe > xDevelopment/logs/training_tokenizer_caps_bpe16k_load.log 2>&1 &
+# nohup python xDevelopment/02_train_tokenizer.py -t -c 16k -m books_bpe > xDevelopment/logs/training_tokenizer_books_bpe16k_load.log 2>&1 &
+# nohup python -m xDevelopment.02_train_tokenizer -t -c 16k -m caps_bpe > logs/training_tokenizer_caps_bpe16k_load.log 2>&1 &

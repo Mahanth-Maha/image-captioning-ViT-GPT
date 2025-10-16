@@ -1,10 +1,27 @@
+# Python 3.12.0
 python-dotenv
 torch
+torchaudio
+torchvision
+# torch==2.6.0+cu124
+# torchaudio==2.6.0+cu124
+# torchvision==0.21.0+cu124
 numpy
+pandas
 matplotlib
 scipy
+Pillow
+opencv-python
 tqdm
+pyyaml
 rich
 black
 isort
+nltk==3.9.2
+rouge_score==0.1.2
+sacrebleu==2.5.1
+omegaconf==2.3.0
+tensorboard==2.20.0
+wandb==0.22.1
 
+pycocoevalcap

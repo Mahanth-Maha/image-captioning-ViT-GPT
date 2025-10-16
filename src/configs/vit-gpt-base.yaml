@@ -1,0 +1,85 @@
+batch_size: 256
+gradient_accumulation: 2
+tokenizer: caps_bpe
+
+model:
+  name: 'vit-gpt-base'
+  encoder:
+    vocab_size: 1024
+    dim: 512
+    context_length: 1024
+    ffn_dim: 1536
+    n_heads: 8
+    Nx: 8
+    patch_size: 16
+    img_resize: 512
+  
+  decoder:
+    vocab_size: 16384
+    dim: 512
+    context_length: 64
+    ffn_dim: 1536
+    n_heads: 8
+    Nx: 12
+
+  n_kv_heads: null
+  dropout: 0.1
+  tie_weights: true
+  init_std: 0.02
+  use_checkpoint: true
+  checkpoint_ratio: 0.5
+
+training:
+  accum_steps: 2
+  max_grad_norm: 1.0
+
+  learning_rate: 3e-4
+  weight_decay: 0.05
+  warmup_steps: 2000
+
+  epochs: 10
+  use_epochs: true
+  max_steps: 0 
+
+  gradient_clip: 1.0
+
+  scheduler: 'cosine'
+  min_lr_ratio: 0.05
+
+  optimizer: 'adamw'
+  betas: [0.9, 0.99]
+  eps: 1e-8
+
+  val_every_steps: 100
+  val_max_batches: 32
+
+  save_every_steps: 250
+  log_every_steps: 100
+  
+  async_ckpt_write: true
+  keep_last: 3
+  milestone_every: 500
+
+  use_tensorboard: true
+  use_wandb: false
+  wandb_mode: offline
+
+  max_caption_length: 35
+  generation_temperature: 0.8
+  generation_top_k: 50
+  generation_top_p: 0.95
+  num_eval_samples: 5
+  
+  grad_skip_nan_inf: true
+  bf16_autocast: true
+  use_fp16_scaler: true
+  use_amp: true
+  amp_dtype: 'bfloat16'
+
+  run_name: train
+  log_dir: checkpoints/vitgpt-base
+
+  train_time_warmup: 0
+  avg_overfit_time: null
+  precomputed_train_time: 3.141
+device: cuda
