@@ -1,3 +1,6 @@
+# import warnings
+# warnings.filterwarnings("ignore", category=FutureWarning, module="torch.cuda")
+
 from dotenv import load_dotenv
 load_dotenv()
 

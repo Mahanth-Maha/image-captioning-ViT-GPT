@@ -16,7 +16,8 @@ import torch
 from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
 
-
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -807,3 +808,11 @@ class ImageCaptioningTrainer:
             if self.wandb_run:
                 self.wandb_run.finish()
             
+    def cleanup(self):
+        if self.is_main_process():
+            if self.tb_writer:
+                self.tb_writer.close()
+            if self.wandb_run:
+                self.wandb_run.finish()
+        if self.is_distributed and dist.is_initialized():
+            dist.destroy_process_group()

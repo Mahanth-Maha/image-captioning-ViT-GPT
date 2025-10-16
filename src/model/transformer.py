@@ -519,3 +519,44 @@ class Transformer(nn.Module):
         logits = self.decode(tgt_ids, enc_out, start_pos=0,self_kv_caches=None, mem_kv_caches=None, self_attn_mask=tgt_self_attn_mask, cross_attn_mask=cross_attn_mask)
         return logits
 
+    @torch.no_grad()
+    def generate(self, src_ids, max_pred_tokens, temp=1.0, top_k=None, top_p=None, kv_cache=True):
+        self.eval()
+        target_device = src_ids.device
+        enc_out = self.encode(src_ids)
+
+        self_kv_caches = [dict() for _ in range(len(self.decoder_blocks))] if kv_cache else None
+        mem_kv_caches = [dict() for _ in range(len(self.decoder_blocks))] if kv_cache else None
+
+
+        x = torch.full((src_ids.size(0), 1), 0, dtype=torch.long, device=target_device)
+
+        gen = torch.Generator(device=target_device)
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            for token_iter in range(max_pred_tokens):
+                logits = self.decode(
+                    x[:, -1:], enc_out, start_pos=token_iter,
+                    self_kv_caches=self_kv_caches,
+                    mem_kv_caches=mem_kv_caches,
+                    self_attn_mask=None, cross_attn_mask=None
+                )
+                logits = logits[:, -1, :] / temp
+
+                if top_k is not None:
+                    top_k_vals, top_k_idxs = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < top_k_vals[:, [-1]]] = -float('Inf')
+
+                if top_p is not None and 0 < top_p < 1.0:
+                    sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+                    cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                    sorted_mask = cumulative_probs > top_p
+                    sorted_mask[..., 1:] = sorted_mask[..., :-1].clone()
+                    sorted_mask[..., 0] = 0
+                    indices_to_remove = sorted_mask.scatter(1, sorted_indices, sorted_mask)
+                    logits = logits.masked_fill(indices_to_remove, -float('Inf'))
+
+                prob_dist = F.softmax(logits, -1)
+                x = torch.cat([x, torch.multinomial(prob_dist, 1, generator=gen)], -1).to(target_device)
+            self.train()
+            return x
+

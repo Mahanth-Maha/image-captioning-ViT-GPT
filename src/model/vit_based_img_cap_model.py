@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from encoder.encoder import VisionTransformerEncoder
 from decoder.decoder import CaptionDecoder
 
+import constants as cnst
+
 class ViTImageCaptioningModel(nn.Module):
     def __init__(
         self,
@@ -105,3 +107,25 @@ class ViTImageCaptioningModel(nn.Module):
             'vision_proj': proj_params,
             'total': vision_params + text_params + proj_params
         }
+
+    
+    @torch.no_grad()
+    def generate_caption(self, images, tokenizer,max_length=50, temperature=1.0, top_k=None, top_p=None,use_kv_cache=True):
+        self.eval()
+        device = images.device
+        batch_size = images.size(0)
+        vision_features = self.encode_image(images)
+        start_token = tokenizer.special_tokens.get(cnst.TOKEN_SOS, 0)
+        start_tokens = torch.full((batch_size, 1), start_token, device=device, dtype=torch.long)
+        generated = self.text_decoder.generate(
+            vision_features=vision_features,
+            start_tokens=start_tokens,
+            max_length=max_length,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            use_kv_cache=use_kv_cache
+        )
+        
+        self.train()
+        return generated
