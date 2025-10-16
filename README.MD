@@ -26,12 +26,11 @@ Starting from the foundational **"Attention is All You Need" (Vaswani et al., 20
 
 ### Progress
 
-☑︎ Tokenizer
-
-☐ Transformer - Decoder
-
-- [x] Dataset
-- [ ] Transformer - Encoder - ViT
+- [x] Tokenizer
+- [x] Dataset Streamer (Loader)
+- [x] Transformer - Decoder
+- [x] Transformer - Encoder - ViT
+- [x] DDP based Parallel - Trainer (with AutoResume and Logging)
 - [ ] Transformer - Encoder - DeiT
 - [ ] Transformer - Encoder - SWIN
 - [ ] Transformer - Encoder - PVT 
@@ -77,4 +76,10 @@ src/
 
 ---
 
-$\large \textrm{Mahanth Yalla,} \\ \small \textrm{M.Tech - Artificial Intelligence,} \\ \textrm{Vision and AI Lab, CDS Dept.,} \\ \normalsize \textrm{Indian Institute of Science.}$
+$\large \textrm{Mahanth Yalla,} $
+
+$ \small \textrm{M.Tech - Artificial Intelligence,} $
+
+$ \textrm{Vision and AI Lab, CDS Dept.,} $
+
+$ \normalsize \textrm{Indian Institute of Science.}$
