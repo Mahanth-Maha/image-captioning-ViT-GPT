@@ -4,15 +4,17 @@
 Research/papers
 *maha*sh
 
+books_dataset.txt
+*bpe4096*
+*bpe8192*
+*bpe16384*
+*bpe32768*
+*bpe65536*
 
+temp*.*
 
-
-
-
-
-
-
-
+*.png
+checkpoints
 
 
 
