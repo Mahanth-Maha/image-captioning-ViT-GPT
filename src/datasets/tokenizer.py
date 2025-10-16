@@ -1,9 +1,9 @@
+import os
+import re
+import time
+from tqdm import tqdm
 from collections import Counter
 from heapq import heapify, heappop, heappush
-from tqdm import tqdm
-import os
-import time
-import re
 
 def enc(x, chars):
     return [chars.index(c) for c in x]
@@ -95,6 +95,7 @@ class myTokenizer_faster:
             self.protected_words_dict[w] = base_tokens + idx
         self.vocab = self._vocab()
         self.rev_vocab = None
+        self.vocab_size = None
         
     def normalize_spaces(self, text):
         text = ' ' + text
@@ -586,8 +587,9 @@ class myTokenizer_faster:
             self.special_tokens = special_tokens
         self.vocab = self._vocab()
         # print(f"Tokenizer loaded from: {model_file}")
-        print(f"Loaded {len(self.merges)} merges, {len(self.special_tokens)} specials, {len(self.protected_words)} protected")
-        print(f"Total vocabulary size: {len(self.vocab)}")
+        # print(f"Loaded {len(self.merges)} merges, {len(self.special_tokens)} specials, {len(self.protected_words)} protected")
+        # print(f"Total vocabulary size: {len(self.vocab)}")
+        self.vocab_size = self._vocab_size()
         return self.vocab
 
     def _vocab_size(self):
@@ -617,6 +619,10 @@ class myTokenizer_faster:
             ids = [i for i in ids if i not in self.special_tokens.values()]
         return self.decode(ids)
         
+    def all_tokens_set(self):
+        if self.vocab is None:
+            return set()
+        return set(self.vocab.keys())
     
     def _analyze_vocab(self):
         vocab = self._vocab()

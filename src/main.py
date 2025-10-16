@@ -22,6 +22,9 @@ import platform
 import numpy as np
 from matplotlib import pyplot as plt
 from datetime import datetime as dt
+import datetime
+import copy 
+import gc
 
 import torch
 import torch.nn as nn
@@ -32,34 +35,55 @@ from rich.panel import Panel
 from rich.console import Console
 console = Console()
 
-from training import utils as ut
-from training.utils import convert2hr2, get_coco_dataloader, get_tokenizer, load_config_from_yaml, merge_configs, overrides_to_dict
+import constants as cnst
+import utils as main_ut
+from training.utils import convert2hr2, fmt_dt_ist, fmt_time ,create_optimizer, create_scheduler,\
+                            get_fused_cross_entropy, load_config_from_yaml, merge_configs, overrides_to_dict
 from model.vit_based_img_cap_model import ViTImageCaptioningModel
 from model.model import ModelFactory
-
+from training.trainer import ImageCaptioningTrainer, CaptioningTrainerConfig
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Model training config overrides")
+    parser.add_argument('-z',"--model_base_config", type=str, default='DEFAULT', help="Optional name of YAML config file to use it as default config")
     parser.add_argument('-c',"--config_file", type=str, default=None, help="Optional additional YAML config file to override defaults")
-    parser.add_argument('-z',"--model_config", type=str, default='DEFAULT', help="Optional additional name of YAML config file to override defaults")
+    parser.add_argument('-mt','--model_type', type=str, default=None, help="Model Types\n1. vit_base_gpt_small\n2. vit_large_gpt_medium\n3. vit_small_gpt_micro")
+    
+    parser.add_argument('--overfit', action='store_true', default=False, help='Overfit on one batch for debugging')
+    parser.add_argument('--train', action='store_true', default=False, help='Train the model')
+    parser.add_argument('--test', action='store_true', default=False, help='Test the model on test set')
+    parser.add_argument('--overfit-steps', type=int, default=10, help='Overfit on one batch for debugging')
+    
+    parser.add_argument('-rn','--training.run_name', type=str, default=None, help='Experiment run name')
+    parser.add_argument('-l',"--training.log_dir", type=str, default='checkpoints/vit', help="logging dir")
+    parser.add_argument('--training.use_tensorboard', action='store_true', default=None, help='Enable TensorBoard logging')
+    parser.add_argument('--training.use_wandb', action='store_true', default=None, help='Enable Weights & Biases logging')
+    parser.add_argument('--training.wandb_mode', type=str, default='disabled', choices=['online', 'offline', 'disabled'], help='W&B logging mode')
+    
+    parser.add_argument('-w',"--training.train_time_warmup", type=int, default=None, help="Config: train_time_warmup ")
+    parser.add_argument('-p',"--training.precomputed_train_time", type=float, default=None, help="Config: precomputed ? train_time_warmup ")
+    
     parser.add_argument('-b',"--batch_size", type=int, default=None, help="Config: batch_size")
-    parser.add_argument('-v','--model_type', type=str, default=None)
-    parser.add_argument('-m',"--max_steps", type=int, default=None, help="Config: max_steps")
-    parser.add_argument('-a',"--trainer.accum_steps", type=int, default=None, help="Config: accum_steps ")
-    parser.add_argument('-w',"--trainer.train_time_warmup", type=int, default=None, help="Config: train_time_warmup ")
-    parser.add_argument('-p',"--trainer.precomputed_train_time", type=float, default=None, help="Config: precomputed ? train_time_warmup ")
-    parser.add_argument('-l',"--logging.log_dir", type=str, help="logging dir")
-    parser.add_argument('-e',"--trainer.ema_decay", type=float, default=None, help="Config: ema_decay ")
-    parser.add_argument('-r',"--trainer.resume_train", action="store_true", default=None, help="Resume ?")
-    parser.add_argument('--learning_rate', type=float, default=None)
+    parser.add_argument('-a',"--training.accum_steps", type=int, default=None, help="Config: accum_steps ")
+    parser.add_argument('-lr','--training.learning_rate', type=float, default=None, help='Learning rate (overrides config)')
+    parser.add_argument('-ms',"--training.max_steps", type=int, default=None, help="Config: max_steps")
+    parser.add_argument('-me',"--training.epochs", type=int, default=None, help="Config: max_steps")
+    parser.add_argument('-ue',"--training.use_epochs", type=int, default=None, help="Config: max_steps")
+    
+    parser.add_argument('--resume', action='store_true', default=None, help='Auto-resume from latest checkpoint')
+    parser.add_argument('--resume_from', type=str, default=None, help='Specific checkpoint path to resume from')
+    
+    parser.add_argument('--val_every_steps', type=int, default=None, help='Validation frequency in steps')
+    parser.add_argument('--save_every_steps', type=int, default=None, help='Checkpoint saving frequency in steps')
+    
     return parser.parse_args()
 
 
 def main():
     console.print(f"[yellow]🧭 Torch: {torch.__version__}, CUDA: {torch.version.cuda}, Python: {platform.python_version()}[/yellow]")
     args = parse_args()
-    project_root = os.getenv(f"PROJECT_ROOT")
-    default_config = os.getenv(f"CONFIG_{args.model_config}")
+    project_root = os.getenv(f"PROJECT_ROOT", ".")
+    default_config = os.getenv(f"CONFIG_{args.model_base_config}")
     
     base_config = load_config_from_yaml(os.path.join(project_root,default_config))
         
@@ -79,24 +103,29 @@ def main():
     decoder_vocab_size = decoder_config.get("vocab_size", 16384)
     vision_img_resize = encoder_config.get("img_resize", 224)
     
-    tokenizer = get_tokenizer(decoder_vocab_size)
-    train_loader = get_coco_dataloader(
+    tokenizer = main_ut.get_tokenizer(
+        decoder_vocab_size
+        )
+    train_loader = main_ut.get_coco_dataloader(
         tokenizer=tokenizer,
         batch_size=batch_size,
         max_seq_len=decoder_context_length + 1,
         resize_to=vision_img_resize,
         datatype='train'
         )
-    val_loader = get_coco_dataloader(
+    
+    val_loader = main_ut.get_coco_dataloader(
         tokenizer=tokenizer,
         batch_size=batch_size,
         max_seq_len=decoder_context_length + 1,
         resize_to=vision_img_resize,
         datatype='val'
         )
-
+    
+    console.print(f"[green]✅ Data loaders ready - Train: {len(train_loader)} batches, Val: {len(val_loader)} batches[/green]")
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if final_config["device"] =='cuda' else torch.device("cpu") 
-
+    console.print(f"[cyan]🖥️  Using device: {device}[/cyan]")
 
     model_kwargs = {
         'vocab_size': decoder_vocab_size,
@@ -118,15 +147,14 @@ def main():
         'use_checkpoint': model_config.get('use_checkpoint', True),
         'checkpoint_ratio': model_config.get('checkpoint_ratio', 0.5)
     }
-    print(f'{args.model_type=}')
+    
     if args.model_type in ['vit_base_gpt_small', 'vit_large_gpt_medium', 'vit_small_gpt_micro']:
         model = ModelFactory.create_model(args.model_type, **model_kwargs)
-        print(f"[Info] Created model using ModelFactory for type: {args.model_type}")
+        print(f"\n👉 Created model using ModelFactory for type: {args.model_type} !\n")
     else:
         model = ViTImageCaptioningModel(**model_kwargs)
-        print(f"[Info] Created model using Config and Command line args.")
-    
-    model = model.to(device)
+        args.model_type = model_config['name']
+        print(f"\n👉 Created model using given Config overridden with Command line args...\n")
     
     param_counts = model.get_params_count()
     total_params = param_counts['total']
@@ -144,12 +172,10 @@ def main():
         border_style="cyan"
     ))
 
-    console.print("\n[yellow]Testing model with sample batch...[/yellow]")
+    console.print("\n[yellow]🖋️  Testing model with sample batch...[/yellow]")
     try:
         sample_batch = next(iter(train_loader))
         images, captions = sample_batch
-        images = images.to(device)
-        captions = captions.to(device)
         
         # example_image = train_loader.dataset.decode_tensor(images[0])
         # example_captions = tokenizer.decode_tensor(captions[0], skip_special_tokens=True)
@@ -167,11 +193,11 @@ def main():
             loss = F.cross_entropy(
                 logits_flat,
                 labels_flat,
-                ignore_index=tokenizer.get_token_id(ut.TOKEN_PAD)
+                ignore_index=tokenizer.get_token_id(cnst.TOKEN_PAD)
             )
         
-        console.print(f"[green]✅ Model forward pass successful![/green]")
-        console.print(f"[bold]Input shapes:[/bold] Images: {list(images.shape)}, Captions: {list(captions.shape)}")
+        console.print(f"[green bold]✅ Model forward pass successful![/green bold]")
+        console.print(f"[bold]Input shapes:[/bold] \n\tImages: {list(images.shape)}, \n\tCaptions: {list(captions.shape)}")
         console.print(f"[bold]Output logits shape:[/bold] {list(output_logits.shape)}")
         console.print(f"[bold green]Loss:[/bold green] {loss}")
 
@@ -179,49 +205,319 @@ def main():
         console.print(f"[red]❌ Model test failed: {e}[/red]")
         return
 
-
-    console.print("\n[bold yellow]🔁 Overfitting on one batch to sanity check...[/bold yellow]")
-
-    images_batch = images.clone().detach()
-    captions_batch = captions.clone().detach()
-    model.train()
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=2e-3)
-    pad_token_id = tokenizer.get_token_id(ut.TOKEN_PAD)
-    n_steps = 250
-    for step in range(1, n_steps + 1):
-        optimizer.zero_grad()
-        output_logits = model(images_batch, captions_batch[:, :-1])
-        labels = captions_batch[:, 1:]
-        logits_flat = output_logits.reshape(-1, output_logits.size(-1))
-        labels_flat = labels.reshape(-1)
-        loss = F.cross_entropy(
-            logits_flat,
-            labels_flat,
-            # ignore_index=pad_token_id
+    if args.overfit:
+        overfit_model = copy.deepcopy(model)
+        console.print("\n[bold yellow]🖋️  Overfitting on one batch to sanity check...[/bold yellow]")
+        overfit_model = overfit_model.to(device)
+        images_batch = images.clone().detach()
+        captions_batch = captions.clone().detach()
+        overfit_model.train()
+        images_batch = images_batch.to(device)
+        captions_batch = captions_batch.to(device)
+        optimizer = torch.optim.Adam(
+            overfit_model.parameters(), 
+            lr=2e-3,
+            )
+        pad_token_id = tokenizer.get_token_id(cnst.TOKEN_PAD)
+        n_steps = args.overfit_steps
+        start_wall = time.time()
+        times = []
+        for step in range(1, n_steps + 1):
+            optimizer.zero_grad()
+            output_logits = overfit_model(images_batch, captions_batch[:, :-1])
+            labels = captions_batch[:, 1:]
+            logits_flat = output_logits.reshape(-1, output_logits.size(-1))
+            labels_flat = labels.reshape(-1)
+            loss = F.cross_entropy(
+                logits_flat,
+                labels_flat,
+                # ignore_index=pad_token_id
+            )
+            loss.backward()
+            optimizer.step()
+            times.append(time.time() - start_wall)
+            start_wall = time.time()
+            if step % 20 == 0 or step == 1 or step == n_steps:
+                console.print(f"[cyan]Step {step:03d}[/cyan] - Loss: {loss.item():.4f}")
+            if loss.item() < 0.1:
+                print(f'⛓️‍💥 breaking training loop! -> Converged - Overfitted at step {step}')
+                break
+        console.print("\n[bold green]✅ Overfitting completed![/bold green]")
+        overfit_model.eval()
+        with torch.no_grad():
+            sample_logits = overfit_model(images_batch, captions_batch[:, :-1])
+            pred_ids = sample_logits.argmax(dim=-1)
+            for k in range(min(3, batch_size)):
+                example_pred = tokenizer.decode_tensor(pred_ids[k], skip_special_tokens=True)
+                example_gt = tokenizer.decode_tensor(captions_batch[k], skip_special_tokens=True)
+                console.print(f"[bold yellow]{k:3})\tGround Truth:[/bold yellow] {example_gt}")
+                console.print(f"\t[bold green]Prediction:[/bold green] {example_pred}")
+        last_n = max(1, int(0.39 * len(times)))
+        avg_overfit_time = np.array(times[-last_n:]).mean()
+        avg_time_all = np.array(times).mean()
+        
+        print(f"⏲️ Time Estimates:")
+        print(f"  Average time per optimizer step (all {len(times)} steps): {avg_time_all:.4f} s")
+        print(f"  Average time per optimizer step (last {last_n} steps): {avg_overfit_time:.4f} s [ <-- CONSIDER ]")
+        
+        del overfit_model
+        torch.cuda.empty_cache()
+        gc.collect()
+    
+    training_config = final_config.get('training', {})
+    if not training_config['accum_steps']:
+        training_config['accum_steps'] = final_config['gradient_accumulation']
+    
+    trainer_config = CaptioningTrainerConfig(
+        accum_steps=training_config['accum_steps'],
+        max_grad_norm=training_config['max_grad_norm'],
+        grad_skip_nan_inf=training_config['grad_skip_nan_inf'],
+        bf16_autocast=training_config['bf16_autocast'],
+        val_every_steps=training_config['val_every_steps'],
+        val_max_batches=training_config['val_max_batches'],
+        log_every_steps=training_config['log_every_steps'],
+        moving_avg_alpha=training_config['moving_avg_alpha'],
+        save_every_steps=training_config['save_every_steps'],
+        keep_last=training_config['keep_last'],
+        async_ckpt_write=training_config['async_ckpt_write'],
+        milestone_every=training_config['milestone_every'],
+        use_tensorboard=training_config['use_tensorboard'],
+        use_wandb=training_config['use_wandb'],
+        wandb_mode=training_config['wandb_mode'],
+        max_caption_length=training_config['max_caption_length'],
+        generation_temperature=training_config['generation_temperature'],
+        generation_top_k=training_config['generation_top_k'],
+        generation_top_p=training_config['generation_top_p'],
+        num_eval_samples=training_config['num_eval_samples'],
+    )
+    
+    if training_config['train_time_warmup'] >=0:
+        warmup_model = copy.deepcopy(model)
+        # optimizer = create_optimizer(model, lr=float(training_config.get('learning_rate', 1e-4)))
+        optimizer = torch.optim.Adam(warmup_model.parameters(), lr=2e-3)
+        # scheduler = create_scheduler(
+        #     optimizer,
+        #     total_steps=training_config['train_time_warmup'],
+        #     warmup_steps=training_config.get('avg_overfit_time', int(0.025 * training_config['train_time_warmup']))
+        # )
+        scheduler = None
+        
+        loss_fn = get_fused_cross_entropy(
+            ignore_index=tokenizer.get_token_id(cnst.TOKEN_PAD)
         )
-        loss.backward()
-        optimizer.step()
+        
+        warmup_trainer = ImageCaptioningTrainer(
+            model=warmup_model,
+            optimizer=optimizer,
+            loss_fn=loss_fn,
+            train_loader=copy.deepcopy(train_loader),
+            val_loader=copy.deepcopy(val_loader),
+            tokenizer=copy.deepcopy(tokenizer),
+            device=device,
+            model_type=args.model_type,
+            run_name=training_config['run_name'] + '-warmup',
+            log_dir=training_config['log_dir'] + '/warmup',
+            scheduler=scheduler,
+            config=trainer_config,
+            model_kwargs=model_kwargs,
+            verbose=True
+        )
+        starttime = time.time()
+        warmup_trainer.train(max_steps= training_config['train_time_warmup'], is_warmup=True)
+        endtime = time.time()
+        print(f'Warmup training completed at {endtime - starttime}')
+        training_config['precomputed_train_time'] = (endtime-starttime)/training_config['train_time_warmup']
+        del warmup_model
+        del warmup_trainer
+        torch.cuda.empty_cache()
+        gc.collect()
+    
+    if args.train:
+        console.print("[yellow]🖋️  Setting up optimizer and scheduler...[/yellow]")
+        # model = nn.DataParallel(model)
+        model = model.to(device)
+        optimizer = create_optimizer(model, lr=float(training_config.get('learning_rate', 1e-4)))
+        max_steps = training_config.get('max_steps', 5000)
+        steps_per_epoch = len(train_loader)
+        total_epochs_in_steps = max(1, max_steps // steps_per_epoch)
+        
+        max_epochs = training_config.get('epochs', 1)
+        total_steps_in_epochs = int((steps_per_epoch/ trainer_config.accum_steps) * max_epochs)
+        if training_config.get('use_epochs', False):
+            total_steps = total_steps_in_epochs 
+        else:
+            total_steps = max_steps
 
-        if step % 20 == 0 or step == 1 or step == n_steps:
-            console.print(f"[cyan]Step {step:03d}[/cyan] - Loss: {loss.item():.4f}")
+        scheduler = create_scheduler(
+            optimizer,
+            total_steps=total_steps,
+            warmup_steps=training_config.get('warmup_steps', int(0.025 * total_steps))
+        )
+        
+        loss_fn = get_fused_cross_entropy(
+            ignore_index=tokenizer.get_token_id(cnst.TOKEN_PAD)
+        )
+        
+        
+        
+        console.print(f"[green]✅ Training setup complete![/green]")
+        console.print(f"[bold]Planned total steps:[/bold] {total_steps}")
+        console.print(f"[bold]Gradient accumulation:[/bold] {trainer_config.accum_steps}")
+        console.print(f"[bold]Validation every:[/bold] {trainer_config.val_every_steps} steps")
+        console.print(f"[bold]Checkpoints every:[/bold] {trainer_config.save_every_steps} steps")
+        console.print(f"[bold]TensorBoard:[/bold] {'✅' if trainer_config.use_tensorboard else '❌'}")
+        console.print(f"[bold]W&B:[/bold] {'✅' if trainer_config.use_wandb else '❌'} (mode: {trainer_config.wandb_mode})")
+        
+        
+        accum_steps = trainer_config.accum_steps
+        save_every_steps = trainer_config.save_every_steps
+        val_every_steps = trainer_config.val_every_steps
 
-    console.print("[bold green]✅ Overfitting loop completed![/bold green]")
-    model.eval()
-    with torch.no_grad():
-        sample_logits = model(images_batch, captions_batch[:, :-1])
-        pred_ids = sample_logits.argmax(dim=-1)
-        example_pred = tokenizer.decode_tensor(pred_ids[0], skip_special_tokens=True)
-        example_gt = tokenizer.decode_tensor(captions_batch[0], skip_special_tokens=True)
-        console.print(f"\n[bold yellow]Ground Truth:[/bold yellow] {example_gt}")
-        console.print(f"[bold green]Prediction after overfitting:[/bold green] {example_pred}")
+        n_params = sum(p.numel() for p in model.parameters())
+        micro_steps_per_epoch = steps_per_epoch
+        opt_steps_per_epoch = math.ceil(micro_steps_per_epoch / accum_steps)
 
+        avg_overfit_time = training_config.get('avg_overfit_time', 1.5)
+        time_per_micro_step = training_config['precomputed_train_time'] if training_config['train_time_warmup'] >= 0 else avg_overfit_time
+        time_per_opt_step = time_per_micro_step * accum_steps
+
+        num_save_events = max(1, total_steps // save_every_steps)
+        save_overhead_total = num_save_events * 30
+
+        time_one_epoch = opt_steps_per_epoch * time_per_opt_step
+        time_total_run = total_steps * time_per_opt_step + save_overhead_total
+
+        current_fixed = dt.now(pytz.timezone("Asia/Kolkata"))
+        eta_run = current_fixed + datetime.timedelta(seconds=time_total_run)
+        eta_one_epoch = current_fixed + datetime.timedelta(seconds=time_one_epoch)
+
+        box0 = f"""
+        [bold cyan]MODEL OVERVIEW[/bold cyan]
+
+        • Model Type             : [bold]{args.model_type}[/bold]
+        • Total Parameters       : [bold]{convert2hr2(n_params)}[/bold] ([dim]{n_params:,}[/dim])
+
+        [bold]Architecture[/bold]
+        • Encoder                : ViT
+        • Captioning Head        : Transformer Decoder + LM
+        • Max Caption Length     : [bold]{final_config['model'].get('max_caption_len', 64)}[/bold]
+        • Vocabulary Size        : [bold]{final_config['model'].get('vocab_size', tokenizer.vocab_size)}[/bold]
+        """
+
+        box1 = f"""
+        [bold cyan]DATASET OVERVIEW[/bold cyan]
+        
+        • Images per epoch              : [bold]{len(train_loader.dataset):,}[/bold]
+        • Dataloader iterations/epoch   : [bold]{micro_steps_per_epoch:,}[/bold]
+        • Accumulation steps            : [bold]{accum_steps}[/bold]
+        • Optimizer steps per epoch     : [bold]{opt_steps_per_epoch:,}[/bold]
+        """
+
+        box2 = f"""
+        [bold magenta]STEPS & TRAINING PLAN[/bold magenta]
+
+        • Total planned optimizer steps   : [bold]{total_steps:,}[/bold]
+        • Epochs (approx)                 : [bold]{total_steps/opt_steps_per_epoch:.2f}[/bold]
+        • Save checkpoint every          : [bold]{save_every_steps}[/bold] steps (~30s overhead each)
+        • Validation every               : [bold]{val_every_steps}[/bold] steps
+        • Gradient accumulation          : [bold]{accum_steps}[/bold]
+
+        • Estimated # Checkpoints         : [bold]{num_save_events}[/bold]
+        • Checkpoint overhead (total)     : [bold]{fmt_time(save_overhead_total)}[/bold]
+        """
+
+        box3 = f"""
+        [bold green]TIME & ETAs[/bold green]
+
+        [bold]Per-unit times[/bold]
+        • Time per micro step            : [bold]{time_per_micro_step:.3f} s[/bold]
+        • Time per optimizer step        : [bold]{time_per_opt_step:.3f} s[/bold]
+
+        [bold]Larger spans[/bold]
+        • One epoch time                 : [bold]{fmt_time(time_one_epoch)}[/bold]
+        • Total planned run time         : [bold]{fmt_time(time_total_run)}[/bold]
+
+        [bold]Calendar[/bold]
+        • Current time                   : [bold]{fmt_dt_ist(current_fixed)}[/bold]
+        • ETA after one epoch            : [bold]{fmt_dt_ist(eta_one_epoch)}[/bold]
+        • ETA end of run                 : [bold]{fmt_dt_ist(eta_run)}[/bold]
+        """
+
+        print("\n\n")
+        console.print(Panel.fit(box0, title="🧠 Model", border_style="yellow", box=HEAVY))
+        console.print(Panel.fit(box1, title="📦 Dataset", border_style="cyan", box=HEAVY))
+        console.print(Panel.fit(box2, title="🧮 Steps & Plan", border_style="magenta", box=HEAVY))
+        console.print(Panel.fit(box3, title="⏱️ Time Estimates", border_style="green", box=HEAVY))
+        print("\n\n")
+        
+        # Initialize trainer
+        console.print("\n[yellow]🖋️ Initializing trainer...[/yellow]")
+        
+        trainer = ImageCaptioningTrainer(
+            model=model,
+            optimizer=optimizer,
+            loss_fn=loss_fn,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            tokenizer=tokenizer,
+            device=device,
+            model_type=args.model_type,
+            run_name=training_config['run_name'],
+            log_dir=training_config['log_dir'],
+            scheduler=scheduler,
+            config=trainer_config,
+            model_kwargs=model_kwargs,
+            verbose=True
+        )
+        
+        console.print(f"[green]Trainer initialized! Experiment: {args.model_type}/{trainer.run_name}[/green]")
+        console.print(f"[cyan]Experiment directory: {trainer.base_dir}[/cyan]")
+
+        if args.resume or args.resume_from:
+            trainer.resume_training(args.resume_from if args.resume_from else None)
+
+        console.rule("[bold magenta]✒️  Starting Training[/bold magenta]")
+        console.print(f"""
+        Estimated Timings
+            Estimated Time of RUN  🏃 💨 : {fmt_time(time_total_run)}
+            Starting at ✍️  : {fmt_dt_ist(current_fixed)}
+            May End  at 🏁 : {fmt_dt_ist(eta_run)}
+        """)
+        console.print("=" * 80)
+        
+        try:
+            trainer.train(max_steps=total_steps)
+            console.print("\n[bold green]🎉 Training completed successfully![/bold green]")
+            
+        except KeyboardInterrupt:
+            console.print("\n[yellow]⚠️ Training interrupted by user[/yellow]")
+            
+        except Exception as e:
+            console.print(f"\n[red]❌ Training failed with error: {e}[/red]")
+            raise
+            
+        finally:
+            # Cleanup
+            trainer.cleanup()
+            console.print("[cyan]🧹 Cleanup completed[/cyan]")
+            
+        console.print(f"\n[bold]⭐ Final Results:[/bold]")
+        console.print(f"Best validation loss: {trainer.best_val_loss:.4f}")
+        console.print(f"Best BLEU score: {trainer.best_bleu:.4f}")
+        console.print(f"Total training steps: {trainer.global_step}")
+        console.print(f"Final epoch: {trainer.current_epoch}")
+        
+        console.print(f"\n[bold green]✅ Experiment completed: {trainer.base_dir}[/bold green]")
+        
     print()
     console.print('[red]Trainer Not Implemented Yet[/red]')
     print()
 
 
 if __name__ == "__main__":
+    console.print('\n[orange]' + '-'*80 + '[/orange]' )
+    console.print('[bold green]\t\t👋 Hi! \t Image-Captioning (ViT-GPT) Train/Eval Arena [/bold green]')
+    console.print('[orange]' + '-'*80 + '[/orange]\n\n' )
     start = dt.now()
     main()
     console.print('[bold green]✅ Done! Script Completed Successfuly[/bold green]')

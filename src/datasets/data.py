@@ -5,7 +5,8 @@ import torch
 from torchvision import transforms
 from torch.utils.data import Dataset
 
-import training.utils as ut
+import datasets.utils as data_ut
+import constants as cnst
 
 image_stats = {
     'imagenet': {
@@ -61,12 +62,12 @@ class COCODataset(Dataset):
 
         image = self.transform(image)
         
-        caption = ut.preprocess_captions(ann['caption'])
+        caption = data_ut.preprocess_captions(ann['caption'])
         token_ids = self.tokenizer.encode(caption)
 
-        sos = self.tokenizer.special_tokens[ut.TOKEN_SOS]
-        eos = self.tokenizer.special_tokens[ut.TOKEN_EOS]
-        pad = self.tokenizer.special_tokens[ut.TOKEN_PAD]
+        sos = self.tokenizer.special_tokens[cnst.TOKEN_SOS]
+        eos = self.tokenizer.special_tokens[cnst.TOKEN_EOS]
+        pad = self.tokenizer.special_tokens[cnst.TOKEN_PAD]
 
         token_ids = [sos] + token_ids + [eos]
 
