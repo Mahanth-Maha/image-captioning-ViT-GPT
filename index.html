@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transformers for Image Captioning</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: rgb(228, 231, 192);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .container2 {
+            max-width: 1200px;
+            margin: 30px auto 0 auto;
+            padding: 0 20px;
+        }
+        .container3 {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            color: #010b1e;
+        }
+        .my-link {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        .my-link:hover {
+            color: #0056b3;
+            text-decoration: underline;
+        }
+
+        header {
+            background: #9fecff;
+            padding: 60px 0;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            font-size: 2em;
+            color: #1b0000;
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            color: #010b1e;
+            margin-bottom: 30px;
+        }
+
+        .author {
+            font-size: 1.1em;
+            color: #1a4b8a;
+            margin-bottom: 10px;
+        }
+
+        .affiliation {
+            color: #1e5194;
+            font-size: 0.95em;
+        }
+
+        .buttons {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: #d45d0e;
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 15px rgba(212, 93, 14, 0.4);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(212, 93, 14, 0.6);
+        }
+
+        .btn-secondary {
+            background: #28407a;
+            box-shadow: 0 4px 15px rgba(40, 64, 122, 0.4);
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 6px 20px rgba(40, 64, 122, 0.6);
+        }
+        .btn-outline {
+            background: #15161a;
+            box-shadow: 0 4px 15px rgba(11, 18, 34, 0.4);
+        }
+
+        .btn-outline:hover {
+            box-shadow: 0 6px 20px rgba(11, 18, 34, 0.6);
+        }
+        main {
+            background: white;
+            margin: 40px auto;
+            border-radius: 20px;
+            box-shadow: 0 5px 5px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        section {
+            padding: 40px 40px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        section:last-child {
+            border-bottom: none;
+        }
+
+        h2 {
+            font-size: 2em;
+            color: #2d3748;
+            margin-bottom: 30px;
+            position: relative;
+            padding-bottom: 15px;
+        }
+
+        h2::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 60px;
+            height: 4px;
+            background: linear-gradient(135deg, #252d51 0%, #282e75 100%);
+            border-radius: 2px;
+        }
+
+        h3 {
+            font-size: 1.4em;
+            color: #4a5568;
+            margin: 30px 0 15px 0;
+        }
+
+        .abstract {
+            background: linear-gradient(135deg, #f6f8fb 0%, #e9ecef 100%);
+            padding: 30px;
+            border-radius: 15px;
+            border-left: 5px solid #667eea;
+            font-size: 1.05em;
+            line-height: 1.8;
+        }
+
+        .highlights {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 25px;
+            margin-top: 30px;
+        }
+
+        .highlight-card {
+            background: linear-gradient(135deg, #f6f8fb 0%, #ffffff 100%);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .highlight-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .highlight-card h3 {
+            color: #667eea;
+            margin-top: 0;
+            font-size: 1.2em;
+        }
+        
+        .progress-list {
+            list-style: none;
+            padding-left: 0;
+        }
+        .progress-list li {
+            font-size: 1.1em;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+        }
+        .progress-list li:last-child {
+            border-bottom: none;
+        }
+        .progress-list .icon {
+            margin-right: 15px;
+            font-size: 1.4em;
+        }
+        .progress-list .completed {
+            color: #48bb78;
+        }
+        .progress-list .pending {
+            color: #ed8936;
+        }
+
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 30px 0;
+            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        thead {
+            background: #505159;
+            color: white;
+        }
+
+        th, td {
+            padding: 15px;
+            text-align: left;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e2e8f0;
+            transition: background 0.2s;
+        }
+
+        tbody tr:hover {
+            background: #f7fafc;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        pre.code-sample {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 10px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            margin: 20px 0;
+            border-left: 4px solid #667eea;
+            white-space: pre;
+        }
+
+
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: #010b1e;
+            font-size: 0.95em;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            background: #ed8936;
+            color: white;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Transformers for Vision: Image Captioning</h1>
+            <p class="subtitle">An End-to-End Implementation of Modern Vision Transformer Architectures</p>
+            <p class="author"><strong>Mahanth Yalla</strong></p>
+            <p class="affiliation">M.Tech Artificial Intelligence</p>
+            <p class="affiliation">Indian Institute of Science, Bengaluru</p>
+            <div class="buttons">
+                <a href="https://github.com/Mahanth-Maha/VIT-Based-Image-Captioning" class="btn" target="_blank">
+                    <i class="fab fa-github" style="color: #ffffff; font-size: 18px; margin-right: 8px;"></i> View on GitHub
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="container2">
+        <section id="abstract">
+            <h2>Project Overview</h2>
+            <div class="abstract">
+                This repository contains end-to-end implementations of Transformer-based architectures for <strong>Computer Vision</strong>, focusing on the task of <strong>Image Captioning</strong>. Starting from the foundational "Attention is All You Need" architecture, the framework is progressively extended to visual understanding by implementing and experimenting with several modern <strong>Vision Transformer (ViT)</strong> variants. The project serves as a practical exploration of applying cutting-edge visual encoders to complex image-text modeling tasks, bridging the gap between image recognition and natural language generation.
+            </div>
+        </section>
+
+        <section id="goals">
+            <h2>Core Goals & Learning Objectives</h2>
+            <p>The primary objective is to recreate, understand, and compare various Transformer architectures for vision tasks within a unified image captioning framework.</p>
+            <div class="highlights">
+                <div class="highlight-card">
+                    <h3>Architectural Implementation</h3>
+                    <p>Implement and deeply understand ViT, DeiT, Swin Transformer, PVTv2, and DINOv2 from the ground up.</p>
+                </div>
+                <div class="highlight-card">
+                    <h3>Encoder-Decoder Framework</h3>
+                    <p>Apply these advanced visual encoders in combination with a Transformer-based text decoder for caption generation.</p>
+                </div>
+                <div class="highlight-card">
+                    <h3>End-to-End Training</h3>
+                    <p>Build a complete training and evaluation pipeline, including custom tokenizers, dataset loaders, and DDP-based trainers.</p>
+                </div>
+                <div class="highlight-card">
+                    <h3>Benchmarking & Analysis</h3>
+                    <p>Compare various visual encoder–text decoder combinations for caption quality, efficiency, and performance.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="methodology">
+            <h2>Methodology & Key Components</h2>
+            <p>The project uses a standard encoder-decoder architecture, where the key innovation lies in substituting the visual encoder with various state-of-the-art Vision Transformer models.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Component</th>
+                        <th>Description</th>
+                        <th>Models / Datasets</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Encoder</strong></td>
+                        <td>Vision Transformer backbone to extract visual features</td>
+                        <td>ViT, DeiT, Swin, PVTv2, DINOv2</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Decoder</strong></td>
+                        <td>Transformer-based text generator for caption synthesis</td>
+                        <td>Vaswani-style Decoder</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Training Objective</strong></td>
+                        <td>Cross-Entropy loss for text generation</td>
+                        <td>Optional CIDEr fine-tuning</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Datasets</strong></td>
+                        <td>Benchmark datasets for image captioning</td>
+                        <td>COCO Captions, Flickr30k, NoCaps</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Evaluation Metrics</strong></td>
+                        <td>Standard metrics for caption quality</td>
+                        <td>BLEU, METEOR, ROUGE-L, SPICE, CIDEr</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="progress">
+            <h2>Project Progress <span class="badge">In-Progress</span></h2>
+            <p>The project is under active development. The following checklist outlines the current status of key components and planned architectural implementations:</p>
+            
+            <h3>Core Components</h3>
+            <ul class="progress-list">
+                <li><span class="icon completed"><i class="fas fa-check-circle"></i></span>Tokenizer & Text Preprocessing</li>
+                <li><span class="icon completed"><i class="fas fa-check-circle"></i></span>Dataset Streamer (COCO/Flickr)</li>
+                <li><span class="icon completed"><i class="fas fa-check-circle"></i></span>Transformer-based Text Decoder</li>
+                <li><span class="icon completed"><i class="fas fa-check-circle"></i></span>DDP-based Parallel Trainer (with AutoResume)</li>
+            </ul>
+
+            <h3>Visual Encoder Implementation</h3>
+            <ul class="progress-list">
+                <li><span class="icon completed"><i class="fas fa-check-circle"></i></span>Vision Transformer (ViT)</li>
+                <li><span class="icon pending"><i class="fas fa-hourglass-half"></i></span>Data-Efficient Image Transformer (DeiT)</li>
+                <li><span class="icon pending"><i class="fas fa-hourglass-half"></i></span>Swin Transformer</li>
+                <li><span class="icon pending"><i class="fas fa-hourglass-half"></i></span>Pyramid Vision Transformer (PVT)</li>
+                <li><span class="icon pending"><i class="fas fa-hourglass-half"></i></span>DINO & DINOv2</li>
+                <li><span class="icon pending"><i class="fas fa-hourglass-half"></i></span>Swin Transformer v2</li>
+                <li><span class="icon pending"><i class="fas fa-hourglass-half"></i></span>Pyramid Vision Transformer v2 (PVTv2)</li>
+            </ul>
+        </section>
+
+        <section id="structure">
+            <h2>Project Structure</h2>
+            <p>The repository is organized to separate concerns, with distinct modules for encoders, decoders, data handling, and training utilities.</p>
+            <pre class="code-sample"><code>src/
+├── encoder/           # Vision Transformer-based visual encoders
+├── decoder/           # Transformer-based text decoders
+├── datasets/          # COCO / Flickr30k dataset loaders
+├── training/          # Training, utilities and evaluation scripts
+├── checkpoints/       # Results and model weights
+├── notebooks/         # Experiments and visualization
+└── main.py            # Entry point</code></pre>
+        </section>
+
+        <section id="references">
+            <h2>Key Research References</h2>
+            <p>This work is built upon the foundational research in Transformers and their application to computer vision.</p>
+            <ul style="padding-left: 20px; margin-top: 15px;">
+                <li><strong>Attention is All You Need</strong> (Vaswani et al., 2017)</li>
+                <li><strong>An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale</strong> (Dosovitskiy et al., 2021)</li>
+                <li><strong>DeiT: Data-Efficient Image Transformers</strong> (Touvron et al., 2021)</li>
+                <li><strong>Swin Transformer</strong> (Liu et al., 2021)</li>
+                <li><strong>PVTv2: Pyramid Vision Transformer</strong> (Wang et al., 2022)</li>
+                <li><strong>DINOv2: Learning Robust Visual Features without Supervision</strong> (Oquab et al., 2023)</li>
+            </ul>
+        </section>
+
+        <section id="conclusion">
+            <h2>Conclusion & Future Direction</h2>
+            <div style="padding: 25px; background: linear-gradient(135deg, #f6f8fb 0%, #e9ecef 100%); border-radius: 15px; border-left: 5px solid #28407a; margin-top: 30px;">
+                <p style="line-height: 1.8;">
+                    This project provides a comprehensive framework for implementing and evaluating modern Vision Transformer architectures on the challenging task of image captioning. By systematically integrating and testing various visual encoders, the goal is to provide clear insights into their effectiveness and trade-offs in a multi-modal context. Future work will focus on completing the planned encoder implementations, conducting extensive hyperparameter tuning, and performing a thorough comparative analysis of all models on benchmark datasets.
+                </p>
+            </div>
+        </section>
+        <section id="more-projects" style="text-align: center; margin: 20px 0;">
+            <a href="https://mahanthyalla.in/projects" class="btn btn-outline">See All Projects of Mine →</a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container3">
+            <p>© 2025 Mahanth Yalla | <a class="my-link" href="https://mahanthyalla.in">mahanthyalla.in</a></p>
+            <p style="margin-top: 10px;">M.Tech Artificial Intelligence | Indian Institute of Science, Bengaluru</p>
+        </div>
+    </footer>
+</body>
+</html>
